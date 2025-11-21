@@ -1,0 +1,15 @@
+{
+  "name": "zero-knowledge-auth",
+  "version": "1.0.0",
+  "description": "Zero-knowledge authentication system",
+  "scripts": {
+    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "server": "cd server && npm run dev",
+    "client": "cd client && npm start",
+    "compile:circuit": "cd circuits && node compile.js",
+    "setup": "npm install && cd server && npm install && cd ../client && npm install"
+  },
+  "devDependencies": {
+    "concurrently": "^7.6.0"
+  }
+}
