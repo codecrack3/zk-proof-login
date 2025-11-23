@@ -1,11 +1,12 @@
 pragma circom 2.0.0;
 
 include "circomlib/circuits/poseidon.circom";
+include "circomlib/circuits/comparators.circom";
 
 template AuthCircuit() {
-    signal input private secret;
-    signal input public commitment;
-    signal input public nonce;
+    signal input secret;
+    signal input commitment;
+    signal input nonce;
     signal output out;
 
     // Hash the secret with nonce
@@ -14,7 +15,11 @@ template AuthCircuit() {
     hasher.inputs[1] <== nonce;
 
     // Verify the hashed secret matches the commitment
-    out <== hasher.out === commitment;
+    component eq = IsEqual();
+    eq.in[0] <== hasher.out;
+    eq.in[1] <== commitment;
+
+    out <== eq.out;
 }
 
-component main = AuthCircuit();
+component main { public [commitment, nonce] } = AuthCircuit();

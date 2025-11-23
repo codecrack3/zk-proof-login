@@ -10,6 +10,9 @@
     "setup": "npm install && cd server && npm install && cd ../client && npm install"
   },
   "devDependencies": {
-    "concurrently": "^7.6.0"
-  }
+    "circomlib": "^2.0.5",
+    "concurrently": "^7.6.0",
+    "snarkjs": "^0.7.5"
+  },
+  "packageManager": "yarn@4.1.1+sha512.ec40d0639bb307441b945d9467139cbb88d14394baac760b52eca038b330d16542d66fef61574271534ace5a200518dabf3b53a85f1f9e4bfa37141b538a9590"
 }

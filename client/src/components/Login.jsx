@@ -1,14 +1,19 @@
 import React, { useState } from 'react';
-import { generateLoginProof } from '../utils/zkAuth.js';
+import { generateCommitment, generateLoginProof } from '../utils/zkAuth.js';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "./ui/card";
+import { Input } from "./ui/input";
+import { Label } from "./ui/label";
+import { Button } from "./ui/button";
 
 function Login({ onLogin }) {
     const [formData, setFormData] = useState({
         username: '',
-        secret: ''
+        secret: '',
+        nonce: ''
     });
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
-    const [proofGenerated, setProofGenerated] = useState(false);
+    const [statusMessage, setStatusMessage] = useState('');
 
     const handleChange = (e) => {
         setFormData({
@@ -17,112 +22,145 @@ function Login({ onLogin }) {
         });
     };
 
+    const loadStoredNonce = () => {
+        if (typeof window === 'undefined' || !formData.username) {
+            return;
+        }
+
+        const storedNonce = localStorage.getItem(`zkAuth:${formData.username}:nonce`);
+        if (storedNonce) {
+            setFormData(prev => ({ ...prev, nonce: storedNonce }));
+            setError('');
+        } else {
+            setError('No saved nonce found for this username. Please enter the nonce from registration.');
+        }
+    };
+
     const handleSubmit = async (e) => {
         e.preventDefault();
         setError('');
         setLoading(true);
+        setStatusMessage('Generating zero-knowledge proof...');
 
         try {
-            // First, we need to get the user's stored commitment
-            // In a real app, this would be retrieved from an API endpoint
-            // For this demo, we'll proceed with proof generation
+            if (!formData.username || !formData.secret || !formData.nonce) {
+                throw new Error('Username, secret, and nonce are required.');
+            }
 
-            setProofGenerated(true);
-            alert('Generating zero-knowledge proof... This may take a few seconds.');
+            const commitment = await generateCommitment(formData.secret, formData.nonce);
+            const { proof, publicSignals } = await generateLoginProof(
+                formData.secret,
+                formData.nonce,
+                commitment
+            );
 
-            // Note: In a full implementation, you'd need to:
-            // 1. Fetch the user's commitment from the server
-            // 2. Generate the proof using the circuit
-            // 3. Send the proof to the server for verification
+            setStatusMessage('Submitting proof for verification...');
 
-            // For demo purposes, we'll simulate successful login
-            setTimeout(() => {
-                onLogin({ id: 1, username: formData.username });
-                setLoading(false);
-            }, 2000);
+            const response = await fetch('http://localhost:3001/api/auth/login', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    username: formData.username,
+                    proof,
+                    publicSignals
+                })
+            });
+
+            const result = await response.json();
+
+            if (!response.ok) {
+                throw new Error(result.error || 'Login failed');
+            }
+
+            setStatusMessage('');
+            onLogin(result.user);
 
         } catch (error) {
-            setError('Login failed: ' + error.message);
+            console.error('Login failed:', error);
+            setError(error.message || 'Login failed');
+            setStatusMessage('');
+        } finally {
             setLoading(false);
         }
     };
 
-    const handleRealProofGeneration = async () => {
-        try {
-            // This would be the actual proof generation
-            // const { proof, publicSignals } = await generateLoginProof(
-            //     formData.secret,
-            //     nonce,
-            //     storedCommitment
-            // );
-
-            // const response = await fetch('http://localhost:3001/api/auth/login', {
-            //     method: 'POST',
-            //     headers: { 'Content-Type': 'application/json' },
-            //     body: JSON.stringify({
-            //         username: formData.username,
-            //         proof,
-            //         publicSignals
-            //     })
-            // });
-
-            // Simulating for demo
-            onLogin({ id: 1, username: formData.username });
-        } catch (error) {
-            setError('Proof generation failed: ' + error.message);
-        }
-    };
-
     return (
-        <div className="auth-form">
-            <h2>Login</h2>
-            <form onSubmit={handleSubmit}>
-                <div className="form-group">
-                    <label htmlFor="username">Username:</label>
-                    <input
-                        type="text"
-                        id="username"
-                        name="username"
-                        value={formData.username}
-                        onChange={handleChange}
-                        required
-                    />
-                </div>
+        <Card className="w-[350px]">
+            <CardHeader>
+                <CardTitle>Login</CardTitle>
+                <CardDescription>Authenticate with Zero-Knowledge Proofs</CardDescription>
+            </CardHeader>
+            <CardContent>
+                <form onSubmit={handleSubmit}>
+                    <div className="grid w-full items-center gap-4">
+                        <div className="flex flex-col space-y-1.5">
+                            <Label htmlFor="username">Username</Label>
+                            <Input
+                                id="username"
+                                name="username"
+                                placeholder="Your username"
+                                value={formData.username}
+                                onChange={handleChange}
+                                onBlur={loadStoredNonce}
+                                required
+                            />
+                        </div>
+                        <div className="flex flex-col space-y-1.5">
+                            <Label htmlFor="secret">Secret</Label>
+                            <Input
+                                id="secret"
+                                name="secret"
+                                type="password"
+                                placeholder="Your secret"
+                                value={formData.secret}
+                                onChange={handleChange}
+                                required
+                            />
+                        </div>
+                        <div className="flex flex-col space-y-1.5">
+                            <Label htmlFor="nonce">Nonce</Label>
+                            <div className="flex space-x-2">
+                                <Input
+                                    id="nonce"
+                                    name="nonce"
+                                    type="text"
+                                    placeholder="Enter saved nonce"
+                                    value={formData.nonce}
+                                    onChange={handleChange}
+                                    required
+                                />
+                                <Button type="button" variant="outline" onClick={loadStoredNonce}>
+                                    Load
+                                </Button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    {error && (
+                        <div className="bg-destructive/15 text-destructive text-sm p-2 mt-4 rounded-md">
+                            {error}
+                        </div>
+                    )}
 
-                <div className="form-group">
-                    <label htmlFor="secret">Secret:</label>
-                    <input
-                        type="password"
-                        id="secret"
-                        name="secret"
-                        value={formData.secret}
-                        onChange={handleChange}
-                        required
-                    />
-                </div>
-
-                {error && <div className="error">{error}</div>}
-
-                <button type="submit" disabled={loading}>
-                    {loading ? 'Authenticating...' : 'Login'}
-                </button>
-
-                {proofGenerated && (
-                    <button
-                        type="button"
-                        onClick={handleRealProofGeneration}
-                        className="secondary-button"
-                    >
-                        Generate Real ZK Proof
-                    </button>
-                )}
-            </form>
-
-            <div className="info-box">
-                <h3>Zero-Knowledge Login:</h3>
-                <p>Your secret is used to generate a cryptographic proof that you know it, without revealing the secret itself to the server.</p>
-            </div>
-        </div>
+                    {statusMessage && (
+                        <div className="bg-primary/10 text-primary text-xs p-2 mt-2 rounded-md">
+                            {statusMessage}
+                        </div>
+                    )}
+                    
+                    <Button className="w-full mt-6" type="submit" disabled={loading}>
+                         {loading ? 'Authenticating...' : 'Login'}
+                    </Button>
+                </form>
+            </CardContent>
+            <CardFooter className="flex flex-col items-start">
+                 <p className="text-xs text-muted-foreground mt-2">
+                    Your secret and nonce stay on your device. The server only receives a zero-knowledge proof and the public signals (commitment + nonce) required for verification.
+                </p>
+            </CardFooter>
+        </Card>
     );
 }
 

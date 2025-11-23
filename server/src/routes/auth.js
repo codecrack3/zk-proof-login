@@ -1,20 +1,31 @@
+import fs from 'fs';
+import path from 'path';
+import { groth16 } from 'snarkjs';
+import { fileURLToPath } from 'url';
 import { getDb } from '../database.js';
 
-let vKey = null;
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-// Mock verification key for development
-try {
-    import('fs').then(fs => {
-        import('path').then(path => {
-            const vKeyPath = path.join(path.dirname(new URL(import.meta.url).pathname), '../../circuits/build/verification_key.json');
-            // For now, we'll skip loading the actual key and use a mock
-            vKey = { vk_alpha_1: ["1", "1"], vk_beta_2: [["1", "1"], ["1", "1"]], vk_gamma_2: [["1", "1"], ["1", "1"]], vk_delta_2: [["1", "1"], ["1", "1"]], IC: [["1"], ["1"], ["1"]] };
-        });
-    });
-} catch (error) {
-    console.log('Verification key not found, using mock for development');
-    vKey = { vk_alpha_1: ["1", "1"], vk_beta_2: [["1", "1"], ["1", "1"]], vk_gamma_2: [["1", "1"], ["1", "1"]], vk_delta_2: [["1", "1"], ["1", "1"]], IC: [["1"], ["1"], ["1"]] };
+function loadVerificationKey() {
+    const candidates = [
+        path.resolve(__dirname, '../../../circuits/build/verification_key.json'),
+        path.resolve(process.cwd(), '../circuits/build/verification_key.json'),
+        path.resolve(process.cwd(), 'circuits/build/verification_key.json')
+    ];
+
+    for (const candidate of candidates) {
+        if (fs.existsSync(candidate)) {
+            console.log(`Loaded verification key from ${candidate}`);
+            return JSON.parse(fs.readFileSync(candidate, 'utf8'));
+        }
+    }
+
+    console.warn('Verification key not found. Run `npm run compile:circuit` before logging in.');
+    return null;
 }
+
+let vKey = loadVerificationKey();
 
 export async function register(req, res) {
     try {
@@ -66,10 +77,18 @@ export async function login(req, res) {
             return res.status(400).json({ error: 'Missing required fields' });
         }
 
+        if (!Array.isArray(publicSignals) || publicSignals.length < 2) {
+            return res.status(400).json({ error: 'Invalid public signals' });
+        }
+
+        if (!vKey) {
+            return res.status(500).json({ error: 'Verification key unavailable. Please compile the circuit first.' });
+        }
+
         const db = getDb();
 
         // Get user's stored commitment
-        db.get('SELECT id, commitment, nonce FROM users WHERE username = ?', [username], (err, user) => {
+        db.get('SELECT id, commitment, nonce FROM users WHERE username = ?', [username], async (err, user) => {
             if (err) {
                 console.error('Database error:', err);
                 return res.status(500).json({ error: 'Login failed' });
@@ -79,16 +98,26 @@ export async function login(req, res) {
                 return res.status(404).json({ error: 'User not found' });
             }
 
-            // For development, we'll mock the zero-knowledge proof verification
-            // In production, this would use actual snarkjs.groth16.verify(vKey, publicSignals, proof)
-            const verificationResult = true; // Mock for development
+            let verificationResult = false;
+            try {
+                verificationResult = await groth16.verify(vKey, publicSignals, proof);
+            } catch (verifyError) {
+                console.error('Proof verification failed:', verifyError);
+                return res.status(500).json({ error: 'Proof verification failed' });
+            }
 
             if (!verificationResult) {
                 return res.status(401).json({ error: 'Invalid proof' });
             }
 
             // Check if the proof matches the stored commitment
-            const [proofCommitment, proofNonce] = publicSignals;
+            // publicSignals order: [out, commitment, nonce] - out is the circuit output (1=valid)
+            const [proofOut, proofCommitment] = publicSignals.map(String);
+
+            if (proofOut !== "1") {
+                return res.status(401).json({ error: 'Proof output indicates invalid credentials' });
+            }
+
             if (proofCommitment !== user.commitment) {
                 return res.status(401).json({ error: 'Commitment mismatch' });
             }
