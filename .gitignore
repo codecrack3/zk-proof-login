@@ -7,3 +7,7 @@ circuits/build
 circuits/*.ptau
 *.zkey
 server/database.sqlite
+
+.yarn
+.serena
+.yarnrc.yml
